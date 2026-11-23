@@ -2,31 +2,18 @@
   "id": "io.github.aurakomputer.filemanager",
   "name": "File Manager",
   "version": "0.1.0",
-  "description": "File Manager DNS-01 challenge plugin",
-  "i18n": {
-    "zh_CN": {
-      "name": "File Manager",
-      "description": "File Manager DNS-01 验证插件"
-    }
-  },
   "api_version": 1,
   "server": {
     "command": ["node", "server/main.js"],
-    "lifecycle": "resident"
+    "lifecycle": "on_demand"
   },
-  "capabilities": ["dns01"],
+  "webapp": {
+    "bundle_path": "webapp/dist/main.js",
+    "style_path": "webapp/dist/style.css"
+  },
+  "capabilities": ["http"],
   "permissions": ["network"],
-  "dns01": {
-    "providers": [
-      {
-        "name": "File Manager",
-        "code": "filemanager",
-        "form": {
-          "fields": [
-            { "key": "FILEMANAGER_API_TOKEN", "label": "API token", "group": "credential", "secret": true }
-          ]
-        }
-      }
-    ]
+  "http": {
+    "listen": "unix"
   }
 }

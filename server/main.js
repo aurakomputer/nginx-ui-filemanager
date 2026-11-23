@@ -1,97 +1,136 @@
-#!/usr/bin/env node
-// File Manager dns01 plugin for nginx-ui.
-//
-// Zero dependencies: uses only Node's built-in readline module. Speaks
-// JSON-RPC 2.0 as newline-delimited JSON on stdin/stdout; stdout carries
-// protocol frames only, everything else goes to stderr. See
-// https://nginxui.com/plugin/protocol and
-// https://nginxui.com/plugin/capabilities/dns01 for the messages.
+// server/main.js
 "use strict";
 
+const http = require("http");
+const fs = require("fs");
+const path = require("path");
 const readline = require("readline");
 
-const API_VERSION = 1;
-const PROVIDER_CODE = "filemanager";
-const CREDENTIAL_KEY = "FILEMANAGER_API_TOKEN";
-let settings = {};
+const DATA_DIR = process.env.NGINX_UI_PLUGIN_DATA_DIR || ".";
+const HTTP_SECRET = process.env.NGINX_UI_PLUGIN_HTTP_SECRET;
+const SOCKET_PATH = path.join(DATA_DIR, "http.sock");
 
-function log(message) {
-  process.stderr.write(`[${PROVIDER_CODE}] ${message}\n`);
+// ---------- JSON-RPC helpers ----------
+function reply(id, result) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", id, result }) + "\n");
+}
+function replyError(id, code, message, data) {
+  process.stdout.write(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      id,
+      error: { code, message, ...(data ? { data } : {}) },
+    }) + "\n",
+  );
 }
 
-function reply(id, result, error) {
-  const frame = { jsonrpc: "2.0", id };
-  if (error) {
-    frame.error = error;
-  } else {
-    frame.result = result || {};
+// ---------- HTTP server (for the "http" capability) ----------
+function startHttpServer() {
+  if (!HTTP_SECRET) {
+    console.error("NGINX_UI_PLUGIN_HTTP_SECRET missing");
+    process.exit(1);
   }
-  process.stdout.write(JSON.stringify(frame) + "\n");
+
+  // clean old socket
+  try {
+    fs.unlinkSync(SOCKET_PATH);
+  } catch {}
+
+  const server = http.createServer((req, res) => {
+    // Security: only accept requests that carry the secret
+    if (req.headers["nginx-ui-plugin-secret"] !== HTTP_SECRET) {
+      res.writeHead(401);
+      return res.end("unauthorized");
+    }
+
+    const url = new URL(req.url, "http://localhost");
+
+    if (req.method === "GET" && url.pathname === "/list") {
+      const dir = url.searchParams.get("path") || "/";
+      // TODO: make this safe (restrict root, reject .. etc.)
+      try {
+        const entries = fs
+          .readdirSync(dir, { withFileTypes: true })
+          .map((d) => ({
+            name: d.name,
+            is_dir: d.isDirectory(),
+          }));
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            path: dir,
+            data: {
+              items: entries,
+            },
+          }),
+        );
+      } catch (e) {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+      return;
+    }
+
+    res.writeHead(404);
+    res.end("not found");
+  });
+
+  server.listen(SOCKET_PATH, () => {
+    fs.chmodSync(SOCKET_PATH, 0o600);
+    console.error("HTTP listening on", SOCKET_PATH);
+  });
+
+  return server;
 }
 
-function invalidConfig(field, message) {
-  return { code: -32003, message, data: { field } };
-}
+// ---------- Protocol loop ----------
+const rl = readline.createInterface({ input: process.stdin });
 
-function handleInitialize() {
-  return [{ api_version: API_VERSION, capabilities: ["dns01"] }, null];
-}
+let httpServer = null;
 
-function handleConfigure(params) {
-  settings = (params && params.settings) || {};
-  return [{}, null];
-}
-
-function handlePresent(params) {
-  // TODO: call the real File Manager API instead of only logging.
-  const config = (params && params.config) || {};
-  if (!config[CREDENTIAL_KEY]) {
-    return [
-      null,
-      invalidConfig(CREDENTIAL_KEY, `${CREDENTIAL_KEY} is required`),
-    ];
+rl.on("line", (line) => {
+  let msg;
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    return; // ignore bad lines
   }
-  log(`present ${params.effective_fqdn} = ${params.value}`);
-  return [{}, null];
-}
 
-function handleCleanup(params) {
-  // TODO: call the real File Manager API to remove the record. It runs
-  // even when present never ran, so a missing record is not an error.
-  log(`cleanup ${params && params.effective_fqdn}`);
-  return [{}, null];
-}
+  const { id, method, params } = msg;
 
-const HANDLERS = {
-  "plugin.initialize": handleInitialize,
-  "plugin.configure": handleConfigure,
-  "plugin.ping": () => [{}, null],
-  "plugin.shutdown": () => [{}, null],
-  "dns01.present": handlePresent,
-  "dns01.cleanup": handleCleanup,
-};
+  switch (method) {
+    case "plugin.initialize":
+      // Start the HTTP server before answering the handshake
+      httpServer = startHttpServer();
+      reply(id, {
+        api_version: 1,
+        capabilities: ["http"],
+        transports: ["stdio"],
+      });
+      break;
 
-const rl = readline.createInterface({ input: process.stdin, terminal: false });
+    case "plugin.configure":
+      reply(id, {});
+      break;
 
-rl.on("line", (rawLine) => {
-  const line = rawLine.trim();
-  if (!line) {
-    return;
+    case "plugin.ping":
+      reply(id, {});
+      break;
+
+    case "plugin.shutdown":
+      if (httpServer) httpServer.close();
+      reply(id, {});
+      break;
+
+    case "plugin.exit":
+      process.exit(0);
+      break;
+
+    default:
+      replyError(id, -32601, `method not found: ${method}`);
   }
-  const message = JSON.parse(line);
-  const method = message.method;
-  const id = message.id;
-  if (method === "plugin.exit") {
-    process.exit(0);
-  }
-  if (id === undefined || id === null) {
-    return; // other notifications (plugin.initialized) need no reply
-  }
-  const handler = HANDLERS[method];
-  if (!handler) {
-    reply(id, null, { code: -32601, message: `method not found: ${method}` });
-    return;
-  }
-  const [result, error] = handler(message.params || {});
-  reply(id, result, error);
 });
+
+// Never write anything except JSON-RPC to stdout
+process.stdout.setEncoding("utf8");
+console.error("File Manager plugin started");
