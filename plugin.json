@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "api_version": 1,
   "server": {
-    "command": ["node", "server/main.js"],
+    "command": ["bun", "server/main.ts"],
     "lifecycle": "on_demand"
   },
   "webapp": {
