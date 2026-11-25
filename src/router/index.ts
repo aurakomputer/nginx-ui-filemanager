@@ -1,8 +1,4 @@
-import {
-  createRouter,
-  createWebHistory,
-  type RouteRecordRaw,
-} from "vue-router";
+import { createRouter, createWebHistory, type RouteRecordRaw } from "vue-router";
 
 declare module "vue-router" {
   interface RouteMeta {
@@ -18,38 +14,38 @@ const routes: RouteRecordRaw[] = [
     component: () => import("../pages/LoginPage.vue"),
     meta: { guest: true },
   },
-  // {
-  //   path: "/",
-  //   component: () => import("src/layouts/MainLayout.vue"),
-  //   meta: { requiresAuth: true },
-  //   children: [
-  //     {
-  //       path: "",
-  //       name: "panel.dashboard",
-  //       component: () => import("src/pages/DashboardPage.vue"),
-  //     },
-  //     {
-  //       path: "sync",
-  //       name: "panel.sync",
-  //       component: () => import("src/pages/SyncPage.vue"),
-  //     },
-  //     {
-  //       path: "input-attendance",
-  //       name: "panel.input-attendance",
-  //       component: () => import("src/pages/InputAttendancePage.vue"),
-  //     },
-  //     {
-  //       path: "attendances",
-  //       name: "panel.attendances",
-  //       component: () => import("src/pages/AttendancesPage.vue"),
-  //     },
-  //     {
-  //       path: "profile",
-  //       name: "panel.profile",
-  //       component: () => import("src/pages/ProfilePage.vue"),
-  //     },
-  //   ],
-  // },
+  {
+    path: "/panel",
+    component: () => import("src/layouts/PanelLayout.vue"),
+    meta: { requiresAuth: true },
+    children: [
+      {
+        path: "dashboard",
+        name: "panel.dashboard",
+        component: () => import("src/pages/DashboardPage.vue"),
+      },
+      //     {
+      //       path: "sync",
+      //       name: "panel.sync",
+      //       component: () => import("src/pages/SyncPage.vue"),
+      //     },
+      //     {
+      //       path: "input-attendance",
+      //       name: "panel.input-attendance",
+      //       component: () => import("src/pages/InputAttendancePage.vue"),
+      //     },
+      //     {
+      //       path: "attendances",
+      //       name: "panel.attendances",
+      //       component: () => import("src/pages/AttendancesPage.vue"),
+      //     },
+      //     {
+      //       path: "profile",
+      //       name: "panel.profile",
+      //       component: () => import("src/pages/ProfilePage.vue"),
+      //     },
+    ],
+  },
 ];
 
 const router = createRouter({
